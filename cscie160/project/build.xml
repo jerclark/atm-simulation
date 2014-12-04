@@ -1,0 +1,34 @@
+<project name="Project" default="build-jar">
+  	
+  	<property file="build.properties"/>
+   
+   	<property name="lib.dir"     value="lib"/>
+    <property name="build.dir"   value="build"/>
+    <property name="jar.dir"     value="${build.dir}/jar"/>
+    <property name="classes.dir" value="${build.dir}/classes"/>
+
+
+    <path id="classpath">
+        <fileset dir="${lib.dir}" includes="*.jar"/>
+    </path>
+    
+   <target name="clean">
+        <delete dir="build"/>
+   </target>
+    
+    <target name="compile">
+        <mkdir dir="build/classes"/>		
+        <javac srcdir="." includes="*.java" destdir="build/classes">
+        	<classpath refid="classpath"/>
+        </javac>
+    </target>
+
+    <target name="build-jar" depends="clean, compile">
+        <mkdir dir="build/jar"/>
+        <jar destfile="${jar.dir}/Project.jar" basedir="build/classes">
+        </jar>
+    </target>
+    
+
+
+</project>

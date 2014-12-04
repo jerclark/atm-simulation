@@ -1,0 +1,154 @@
+<HTML>
+<BODY>
+CSCIE160 Project</p>
+<a href="http://courses.dce.harvard.edu/~cscie160/project.htm">http://courses.dce.harvard.edu/~cscie160/project.htm</a>
+</p>
+<h3>Solution Notes:</h3>
+Java RMI implementation of an ATM/Bank system that uses remote objects to conducts ATM transactions on accounts held in a bank.<br>
+<br>
+-Included Interfaces: ATM, ATMFactory, Account, Bank, Security, ATMListener<br>
+-Included Classes (Bold indicates UnicastRemoteObject subclass): <b>AccountImpl</b>, <b>ATMFactoryImpl</b>, <b>ATMImplementation</b>, ATMServer, <b>BankImpl</b>, <b>SecurityImpl</b>, BankServer, <b>Client</b>, TransactionNotification<br>
+-Included Exception Classes: AccountInsufficientFundsException, ATMInsufficientCashException, AuthenticationFailedException, UnauthorizedTransactionException<br>
+
+<h3>Design/Implementation Details:</h3>
+There three main parts to the system: ATMServer, BankServer and Client. See notes below for details.
+
+<h4>ATMServer</h4>
+The ATMServer binds an ATMImplementation to the rmiregistry
+
+<h5>ATM (Interface):</h5>
+-Interface defines methods to perform operations on bank accounts (deposit, withdraw, transfer, getBalance), methods to add and remove ATMListener objects who want to receive notifications about ATM operations, a convenience method to notify all listeners and a method to validate the transaction (authenticate and authorize).The validateTransaction method returns an Account object  that can be operated on.<br>
+-Defines an enum type "Transaction", that defines the transactions DEPOSIT, WITHDRAW, TRANSFER and BALANCE, and is used in the following places:<br>
+&nbsp;&nbsp;&nbsp;-By the Security interface to determine whether a transaction type is authorized for a given account. I preferred the formal typing of an enum to passing strings to define/retrieve transaction types.<br>
+&nbsp;&nbsp;&nbsp;-By the TransactionNotification class to define formatting for notification strings returned to clients.
+
+<h5>ATMImplementation (UnicastRemoteObject):</h5>
+-Contains the following state members: Cash (cash on hand), a collection of AMTListeners to notify, a reference to the remote Bank and a reference to the remote Security authority.
+-Constructor initializes cash amount to $500, creates an empty list of listeners, and looks up the Bank and Security objects from the rmiregistry.
+-Each of the operations that wants to perform a transaction on an Account performs the following steps:<br>
+1) Create a transaction notification for the operation.<br>
+2) Notify all listeners with that transaction notification<br>
+3) Call the validateTransaction method to get the Account from the bank. The validation method calls out to the authenticate and authorize methods on the Security object. If the validation fails, an exception will be thrown - otherwise, we get the Account from the bank<br>
+4) Perform the operation on the Account retrieved from the "validateTransaction" method<br>
+5) Perform any local state change associated with the transaction (currently, this only happens when we remove cash due to a withdrawl).<br>
+
+	
+<h5>ATMFactory (Interface):</h5>
+-This is the same interface as HW5, except that the getATM() method throws more RMI exceptions because it creates an ATMImplementation whose constructor looks in the registry for Bank and Security objects.
+
+<h5>ATMFactoryImpl (UnicastRemoteObject):</h5>
+-This is the same implementation as HW5, except that the getATM() method throws more RMI exceptions because it creates an ATMImplementation whose constructor looks in the registry for Bank and Security objects.
+<br>
+<h4>BankServer</h4>
+The BankServer binds a Bank and Security object to the rmiregistry
+
+<h5>Bank (Interface):</h5>
+-Interface defines one method getAccount, that will return an Account object to the calling ATM.
+
+<h5>BankImpl (UnicastRemoteObject):</h5>
+-Initializes accounts and stores them in a hash map. Previously, this was done in the ATMImplementation.
+
+<h5>Account (Interface):</h5>
+-Defines methods for deposit, withdraw, getBalance, and getNumber (which returns the account number).
+
+<h5>AccountImpl (UnicastRemoteObject):</h5>
+-Extends UnicastRemoteObject, as the Account objects are passed remotely from the BankServer to the ATMServer when the ATM performs a transaction.<br>
+-Defines methods for deposit, withdraw and getBalance. Throws an AccountInsufficientFundsExeception when a more money is requested for withdrawl than is avaialable.
+
+<h5>Security:</h5>
+-Interface defines two methods, authenticate(AccountInfo info) and authorizeTransaction(AccountInfo info, java.lang.reflect.Method transactionMethod). Methods return void, but throw exceptions when they fail.
+
+<h5>SecurityImpl(UnicastRemoteObject):</h5> 
+-Contains authentication ArrayList of AccountInfo members. I'm using an array of AccountInfo objects rather than a map of account numbers to pins, because at some point, theoretically, AccountInfo could include more attributes - and we'd want to check all of them (i.e. check if the AccountInfo objects are equal). An example might be fingerprint scan data for example.<br>
+-Contains an authorization map that maps account numbers as keys to an array of authorized ATM.Transaction operations for that account. If the method isn't in the value array, the account is not authorized to perform that operation. For example {000001:[ATM.Transaction.DEPOSIT, ATM.Transaction.WITHDRAW]}.<br>
+-Implements the authenticate() and authorizeTransaction() methods declared in the Security interface.<br>
+-The authenticate() method takes an AccountInfo object, and checks if the authentication ArrayList contains the passed in AccountInfo object. The hashCode() and equals() methods have been overriden on AccountInfo so that we can compare AccountInfo objects by value since they are created in different remote objects.<br>
+-The authorization() method takes an ATM.Transaction and an AccountID to see if the authorization map contains that paring. If it does, the transaction is authorized.<br> 
+-If authentication fails, throws "AuthenticationFailureException"<br>
+-If authorization fails, throws "UnauthorizedTransactionException"
+<h4>Client</h4>
+<h5>Client (UnicastRemoteObject):</h5>
+-Subclasses UnicastRemoteObject because once it registers as an ATMlistener on the remote ATM object, the ATM needs to be able to call remotely back to the Client object.
+-Implements the ATMListener interface (handleTransactionNotification()) so it can display information from the ATM.<br>
+-Defines a class method testATM, that will perform test transactions.
+-main() method does the following:<br>
+&nbsp;&nbsp;&nbsp;-Creates a client object, and registers it as a listener in the ATM
+&nbsp;&nbsp;&nbsp;-Executes the static method Client.testATM() method
+&nbsp;&nbsp;&nbsp;-Performs UncastRemoteObject.unexportObject(client) to remove the client from the RMI system and terminates the client thread.
+
+<h4>Shared</h4>
+<h5>Account Info:</h5> 
+-Data class that wraps Account number and Pin number for security validation.<br>
+-Overrides hashMap() and equals() (using the Eclipse generated overrides) so that equality is defined by the value of the member variables. This way, objects in different remote components can validate whether an AccountInfo object is the same as one created somewhere else, given that they have the same accountId and pin.<br>
+-Note that the accountId is "final", but the pin isn't. This is because, theoretically, a pin could be changed at some future point.
+
+<h5>Transaction Notification:</h5>
+-Data class containing a Map that pairs account IDs with Transaction types, a transaction type for the notification, and transaction amount info. NOTE: I'm using a map to capture account data because in the case of a Transfer we have two accounts, each with a different transaction (one WITHDRAW and one DEPOSIT). In the case of a non-transfer transaction, the map may be overkill and will be redundant with the transaction parameter on the TransactionNotification, but I thought it was a consistent way to capture the account information for all types of transactions.<br>
+-Overrides toString() to return a formatted string with transaction information.
+
+
+
+</p>
+<h2>Testing the Simulation</h2>
+
+</p>
+<h3>Build the application</h3>
+-Assuming {src} to be the folder where you have the source:
+-cd to {src}/cscie160/project, and run 'ant build-jar'.<br>
+-create a folder where you want to "unpack" the application to, for example 'mkdir ~/ATM'<br>
+-cd into the folder created in the previous step, i.e. 'cd ~/ATM'<br>
+-'unpack' the built jar file into your created folder by running: 'jar xf {src}/cscie160/project/build/Project.jar'<br>
+-Follow the steps below, considering the "application" folder to be the folder you created above, (i.e. ~/ATM ).
+
+</p>
+<h3>Start the registry</h3>
+-cd to your "application" folder
+-run "rmiregistry" from the command line<br>
+
+</p>
+<h3>Start the BankServer:</h3>
+-In a new shell, cd to your "application" folder<br>
+-run java cscie160.project.BankServer<br>
+
+</p>
+<h3>Start the ATMServer:</h3>
+-In a new shell, cd your "application" folder<br>
+-run java cscie160.project.ATMServer<br>
+
+</p>
+<h3>Running the client:</h3>
+-In another new shell cd your "application" folder<br>
+-java cscie160.project.Client<br>
+
+</p>
+<b>Sample Output</b><br>
+Performing balance inquiry on account: 1<br>
+Balance(0000001): 0.0<br>
+Performing balance inquiry on account: 2<br>
+Balance(0000002): 100.0<br>
+Performing balance inquiry on account: 3<br>
+Balance(0000003): 500.0<br>
+Performing balance inquiry on account: 1<br>
+Failed as expected: cscie160.project.AuthenticationFailedException: Authentication Failed.<br>
+WITHDRAW $500.0 on account: 2<br>
+Failed as expected: cscie160.project.UnauthorizedTransactionException: Not authroized to perform transaction WITHDRAW on account 2<br>
+WITHDRAW $50.0 on account: 1<br>
+Failed as expected: cscie160.project.AccountInsufficientFundsException: Insufficient funds available (Balance: 0.0) for withdrwal of 50.0 in Account: 1<br>
+DEPOSIT $500.0 on account: 1<br>
+DEPOSIT $100.0 on account: 2<br>
+WITHDRAW $100.0 on account: 1<br>
+WITHDRAW $300.0 on account: 3<br>
+WITHDRAW $200.0 on account: 1<br>
+Failed as expected: cscie160.project.ATMInsufficientCashException: I'm sorry, but I, your humble ATM, don't have that much cash right now!<br>
+TRANSFER $100.0 FROM account: 1 TO account: 2<br>
+Performing balance inquiry on account: 1<br>
+Balance(0000001): 300.0<br>
+Performing balance inquiry on account: 2<br>
+Balance(0000002): 300.0<br>
+Performing balance inquiry on account: 3<br>
+Balance(0000003): 200.0<br>
+
+
+
+</BODY>
+</HTML>
